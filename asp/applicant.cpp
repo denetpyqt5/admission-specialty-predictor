@@ -1,9 +1,18 @@
 #include "applicant.h"
+
 #include <QJsonArray>
 #include <QSet>
 #include <QVariantMap>
 #include <QtMath>
 #include <utility>
+
+namespace {
+bool isStateLanguageSubject(const QString &subjectName)
+{
+    const QString s = subjectName.trimmed().toLower();
+    return s == QStringLiteral("русский") || s == QStringLiteral("белорусский");
+}
+} // namespace
 
 // ==========================================
 // Subject
@@ -111,6 +120,15 @@ void CollegeApplicant::setStudyForm(const QString &val)
     emit studyFormChanged();
 }
 
+void CollegeApplicant::setRegions(const QStringList &val)
+{
+    if (m_regions == val)
+        return;
+
+    m_regions = val;
+    emit regionsChanged();
+}
+
 qint32 CollegeApplicant::countTotalScore()
 {
     const qint32 total = getGPA100();
@@ -123,6 +141,7 @@ QJsonObject CollegeApplicant::toJson()
     QJsonObject obj = Applicant::toJson();
     obj.insert(QStringLiteral("type"), QStringLiteral("college"));
     obj.insert(QStringLiteral("totalScore"), countTotalScore());
+    obj.insert(QStringLiteral("regions"), QJsonArray::fromStringList(m_regions));
 
     QJsonObject interests;
     interests.insert(QStringLiteral("direction"), m_direction);
@@ -138,7 +157,7 @@ QJsonObject CollegeApplicant::toJson()
 // ==========================================
 
 UniversityApplicant::UniversityApplicant(QObject *parent)
-    : Applicant(parent)
+    : Applicant(parent), m_studyForm(tr("Бюджет"))
 {
 }
 
@@ -176,14 +195,6 @@ bool UniversityApplicant::addExam(const QString &subjectName, qint32 score, cons
     const int countBefore = subjects.size();
     addSubject(Subject(subjectName.trimmed(), score, parsedType));
     return subjects.size() > countBefore;
-}
-
-namespace {
-bool isStateLanguageSubject(const QString &subjectName)
-{
-    const QString s = subjectName.trimmed().toLower();
-    return s == QStringLiteral("русский") || s == QStringLiteral("белорусский");
-}
 }
 
 bool UniversityApplicant::setExams(const QVariantList &examList)
@@ -319,6 +330,24 @@ QString UniversityApplicant::validateExams() const
     return QString();
 }
 
+void UniversityApplicant::setCities(const QStringList &val)
+{
+    if (m_cities == val)
+        return;
+
+    m_cities = val;
+    emit citiesChanged();
+}
+
+void UniversityApplicant::setStudyForm(const QString &val)
+{
+    if (m_studyForm == val)
+        return;
+
+    m_studyForm = val;
+    emit studyFormChanged();
+}
+
 qint32 UniversityApplicant::countTotalScore()
 {
     qint32 total = getGPA100();
@@ -334,7 +363,14 @@ QJsonObject UniversityApplicant::toJson()
 {
     QJsonObject obj = Applicant::toJson();
     obj.insert(QStringLiteral("type"), QStringLiteral("university"));
-    obj.insert(QStringLiteral("budgetPriority"), true);
+
+    const QString form = m_studyForm.trimmed().isEmpty() ? tr("Бюджет") : m_studyForm.trimmed();
+    const bool isBudget = (form.compare(tr("Бюджет"), Qt::CaseInsensitive) == 0
+                           || form.compare(QStringLiteral("бюджет"), Qt::CaseInsensitive) == 0);
+
+    obj.insert(QStringLiteral("studyForm"), form);
+    obj.insert(QStringLiteral("budgetPriority"), isBudget);
+    obj.insert(QStringLiteral("cities"), QJsonArray::fromStringList(m_cities));
 
     QJsonArray examsArray;
     for (const Subject &s : std::as_const(subjects)) {

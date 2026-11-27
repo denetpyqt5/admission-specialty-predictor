@@ -5,6 +5,7 @@
 #include <QList>
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QVariantList>
 #include <QtQml/qqmlregistration.h>
 
@@ -79,6 +80,7 @@ class CollegeApplicant : public Applicant
     Q_PROPERTY(QString direction READ direction WRITE setDirection NOTIFY directionChanged)
     Q_PROPERTY(QString profile READ profile WRITE setProfile NOTIFY profileChanged)
     Q_PROPERTY(QString studyForm READ studyForm WRITE setStudyForm NOTIFY studyFormChanged)
+    Q_PROPERTY(QStringList regions READ regions WRITE setRegions NOTIFY regionsChanged)
 
 public:
     explicit CollegeApplicant(QObject *parent = nullptr);
@@ -92,6 +94,9 @@ public:
     QString studyForm() const { return m_studyForm; }
     void setStudyForm(const QString &val);
 
+    QStringList regions() const { return m_regions; }
+    void setRegions(const QStringList &val);
+
     qint32 countTotalScore() override;
     QJsonObject toJson() override;
 
@@ -99,11 +104,13 @@ signals:
     void directionChanged();
     void profileChanged();
     void studyFormChanged();
+    void regionsChanged();
 
 private:
     QString m_direction;
     QString m_profile;
     QString m_studyForm;
+    QStringList m_regions;
 };
 
 // Поступающий в ВУЗ (университет)
@@ -113,6 +120,8 @@ class UniversityApplicant : public Applicant
     QML_ELEMENT
 
     Q_PROPERTY(QVariantList exams READ exams NOTIFY examsChanged)
+    Q_PROPERTY(QStringList cities READ cities WRITE setCities NOTIFY citiesChanged)
+    Q_PROPERTY(QString studyForm READ studyForm WRITE setStudyForm NOTIFY studyFormChanged)
 
 public:
     explicit UniversityApplicant(QObject *parent = nullptr);
@@ -125,14 +134,24 @@ public:
     Q_INVOKABLE QVariantList exams() const;
     Q_INVOKABLE QString validateExams() const;
 
+    QStringList cities() const { return m_cities; }
+    void setCities(const QStringList &val);
+
+    QString studyForm() const { return m_studyForm; }
+    void setStudyForm(const QString &val);
+
     qint32 countTotalScore() override;
     QJsonObject toJson() override;
 
 signals:
     void examsChanged();
+    void citiesChanged();
+    void studyFormChanged();
 
 private:
     QList<Subject> subjects;
+    QStringList m_cities;
+    QString m_studyForm;
 };
 
 #endif // APPLICANT_H
