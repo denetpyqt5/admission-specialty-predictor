@@ -29,6 +29,11 @@ ApplicationWindow {
     property bool profileSavedNotice: false
     property string validationError: ""
     property int lastCalculatedScore: 0
+    property bool hasSearched: false
+
+    // Выбранные города (ВУЗ) и регионы (ССУЗ)
+    property var selectedUniversityCities: []
+    property var selectedCollegeRegions: []
 
     // Модель результатов подбора (вкладка «Главная»)
     ListModel {
@@ -48,6 +53,30 @@ ApplicationWindow {
         if (parts.length === 1)
             return parts[0].charAt(0).toUpperCase()
         return (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase()
+    }
+
+    // Переключение флага города (для университета)
+    function toggleUniversityCity(city) {
+        var copy = root.selectedUniversityCities.slice()
+        var idx = copy.indexOf(city)
+        if (idx >= 0) {
+            copy.splice(idx, 1)
+        } else {
+            copy.push(city)
+        }
+        root.selectedUniversityCities = copy
+    }
+
+    // Переключение флага региона (для колледжа)
+    function toggleCollegeRegion(region) {
+        var copy = root.selectedCollegeRegions.slice()
+        var idx = copy.indexOf(region)
+        if (idx >= 0) {
+            copy.splice(idx, 1)
+        } else {
+            copy.push(region)
+        }
+        root.selectedCollegeRegions = copy
     }
 
     // Проверка, есть ли специальность в избранном
@@ -120,6 +149,7 @@ ApplicationWindow {
 
         function onResultsReady(results) {
             root.validationError = ""
+            root.hasSearched = true
             recommendationsModel.clear()
 
             var items = []
@@ -127,12 +157,13 @@ ApplicationWindow {
                 items.push(results[i])
             }
 
-            // Для университета приоритет отдаётся бюджетным специальностям
+            // Для университета приоритет отдаётся выбранной форме обучения (бюджет / платно)
             if (root.isUniversity) {
+                var preferBudget = uniStudyFormCombo.currentText.toLowerCase().indexOf("бюджет") !== -1
                 items.sort(function(a, b) {
-                    var aBudget = root.isBudgetOffer(a) ? 0 : 1
-                    var bBudget = root.isBudgetOffer(b) ? 0 : 1
-                    return aBudget - bBudget
+                    var aMatch = (root.isBudgetOffer(a) === preferBudget) ? 0 : 1
+                    var bMatch = (root.isBudgetOffer(b) === preferBudget) ? 0 : 1
+                    return aMatch - bMatch
                 })
             }
 
@@ -204,10 +235,16 @@ ApplicationWindow {
             collegeApplicant.direction = directionCombo.currentText
             collegeApplicant.profile = profileCombo.currentText
             collegeApplicant.studyForm = studyFormCombo.currentText
+            collegeApplicant.regions = root.selectedCollegeRegions
 
             payload = collegeApplicant.toJson()
             root.lastCalculatedScore = payload.totalScore !== undefined ? payload.totalScore : 0
         } else {
+            if (!uniStudyFormCombo.currentText) {
+                root.validationError = qsTr("Выберите форму обучения.")
+                return
+            }
+
             var s1 = ceLangSubjectCombo.currentText
             var s2 = ceProfileSubjectCombo.currentText
             var s3 = ctSubjectCombo.currentText
@@ -230,6 +267,8 @@ ApplicationWindow {
 
             universityApplicant.fullName = fullName
             universityApplicant.gpa = gpaVal
+            universityApplicant.studyForm = uniStudyFormCombo.currentText
+            universityApplicant.cities = root.selectedUniversityCities
 
             var examsPayload = [
                 { subject: s1, score: score1, examType: "CE" },
@@ -325,6 +364,126 @@ ApplicationWindow {
                 color: "#ffffff"
                 border.color: "#cccccc"
                 radius: 6
+            }
+        }
+    }
+
+    // Компактный чекбокс-флаг для множественного выбора городов / регионов
+    component LocationFlag: Rectangle {
+        id: flagBox
+        property string label: ""
+        property bool checked: false
+        signal toggled()
+
+        implicitWidth: flagRow.implicitWidth + 18
+        implicitHeight: flagRow.implicitHeight + 12
+        radius: 6
+        color: checked ? "#e8ecef" : (flagMouse.containsMouse ? "#f4f6f8" : "#ffffff")
+        border.color: checked ? "#34495e" : "#cccccc"
+        border.width: 1
+
+        Row {
+            id: flagRow
+            anchors.centerIn: parent
+            spacing: 7
+
+            Rectangle {
+                width: 15
+                height: 15
+                radius: 3
+                anchors.verticalCenter: parent.verticalCenter
+                color: flagBox.checked ? "#34495e" : "#ffffff"
+                border.color: flagBox.checked ? "#34495e" : "#95a5a6"
+                border.width: 1.2
+
+                Text {
+                    anchors.centerIn: parent
+                    visible: flagBox.checked
+                    text: "✓"
+                    color: "#ffffff"
+                    font.bold: true
+                    font.pixelSize: 10
+                }
+            }
+
+            Text {
+                text: flagBox.label
+                color: "#222222"
+                font.family: "Arial"
+                font.pointSize: 10
+                font.bold: flagBox.checked
+                anchors.verticalCenter: parent.verticalCenter
+            }
+        }
+
+        MouseArea {
+            id: flagMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: flagBox.toggled()
+        }
+    }
+
+    // Компактная стилизованная кнопка-действие («Выбрать все» / «Сбросить»)
+    component ActionChipButton: Button {
+        id: chipBtn
+        property bool destructive: false
+
+        flat: true
+        hoverEnabled: true
+        leftPadding: 10
+        rightPadding: 10
+        topPadding: 5
+        bottomPadding: 5
+
+        HoverHandler {
+            cursorShape: chipBtn.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+        }
+
+        background: Rectangle {
+            radius: 5
+            border.width: 1
+            color: {
+                if (!chipBtn.enabled)
+                    return "#f2f4f6"
+                if (chipBtn.destructive) {
+                    if (chipBtn.down) return "#f9d6d2"
+                    if (chipBtn.hovered) return "#fdedec"
+                    return "#ffffff"
+                } else {
+                    if (chipBtn.down) return "#cedbe6"
+                    if (chipBtn.hovered) return "#dce6ee"
+                    return "#eef2f6"
+                }
+            }
+            border.color: {
+                if (!chipBtn.enabled)
+                    return "#e0e4e8"
+                if (chipBtn.destructive) {
+                    return (chipBtn.hovered || chipBtn.down) ? "#e6b0aa" : "#d5d8dc"
+                } else {
+                    return (chipBtn.hovered || chipBtn.down) ? "#4e6a85" : "#c5d3df"
+                }
+            }
+
+            Behavior on color { ColorAnimation { duration: 120 } }
+            Behavior on border.color { ColorAnimation { duration: 120 } }
+        }
+
+        contentItem: Text {
+            text: chipBtn.text
+            font.family: "Arial"
+            font.pointSize: 10
+            font.bold: !chipBtn.destructive
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            color: {
+                if (!chipBtn.enabled)
+                    return "#a0aab4"
+                if (chipBtn.destructive)
+                    return (chipBtn.hovered || chipBtn.down) ? "#c0392b" : "#5d6d7e"
+                return "#34495e"
             }
         }
     }
@@ -540,7 +699,6 @@ ApplicationWindow {
                                     Layout.fillWidth: true
                                     spacing: 14
 
-                                    // Аватар с инициалами
                                     Rectangle {
                                         width: 54
                                         height: 54
@@ -588,7 +746,6 @@ ApplicationWindow {
                                     }
                                 }
 
-                                // Поле ввода ФИО
                                 StyledTextField {
                                     id: fullNameField
                                     Layout.fillWidth: true
@@ -597,7 +754,6 @@ ApplicationWindow {
                                     onAccepted: root.saveProfileName()
                                 }
 
-                                // Кнопки сохранения и перехода к подбору
                                 RowLayout {
                                     Layout.fillWidth: true
                                     spacing: 10
@@ -667,7 +823,6 @@ ApplicationWindow {
                                     wrapMode: Text.WordWrap
                                 }
 
-                                // Компактная сводка статистики
                                 Rectangle {
                                     Layout.fillWidth: true
                                     implicitHeight: statsRow.implicitHeight + 20
@@ -802,7 +957,6 @@ ApplicationWindow {
                                     }
                                 }
 
-                                // Пустое состояние избранного
                                 ColumnLayout {
                                     Layout.fillWidth: true
                                     Layout.topMargin: 16
@@ -828,7 +982,6 @@ ApplicationWindow {
                                     }
                                 }
 
-                                // Список сохранённых специальностей
                                 Repeater {
                                     model: favoritesModel
 
@@ -924,7 +1077,7 @@ ApplicationWindow {
                 }
             }
 
-            // 2. ВКЛАДКА: ГЛАВНАЯ (форма подбора + список рекомендаций, адаптивная)
+            // 2. ВКЛАДКА: ГЛАВНАЯ (форма подбора + выбор городов/регионов + результаты)
             ScrollView {
                 id: homeScroll
                 clip: true
@@ -951,7 +1104,7 @@ ApplicationWindow {
                         // --- КАРТОЧКА ПОИСКА И ПАРАМЕТРОВ ---
                         Rectangle {
                             Layout.fillWidth: true
-                            Layout.preferredWidth: homeScroll.isWide ? 440 : 400
+                            Layout.preferredWidth: homeScroll.isWide ? 450 : 400
                             Layout.alignment: Qt.AlignTop
                             implicitHeight: searchCardCol.implicitHeight + 40
                             color: "#ffffff"
@@ -1065,7 +1218,7 @@ ApplicationWindow {
                                     }
                                 }
 
-                                // --- БЛОК КОЛЛЕДЖА: сфера интересов ---
+                                // --- БЛОК КОЛЛЕДЖА: сфера интересов + регионы ---
                                 ColumnLayout {
                                     Layout.fillWidth: true
                                     spacing: 10
@@ -1134,9 +1287,63 @@ ApplicationWindow {
                                             model: AppConstants.studyForms
                                         }
                                     }
+
+                                    // Флаги выбора регионов для колледжа (Минск + области)
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Layout.topMargin: 6
+                                        spacing: 6
+
+                                        Text {
+                                            text: qsTr("Регионы поступления")
+                                            color: "#222222"
+                                            font.bold: true
+                                            font.family: "Arial"
+                                            font.pointSize: 13
+                                            Layout.fillWidth: true
+                                        }
+
+                                        ActionChipButton {
+                                            text: qsTr("Выбрать все")
+                                            enabled: root.selectedCollegeRegions.length < AppConstants.collegeRegions.length
+                                            onClicked: root.selectedCollegeRegions = AppConstants.collegeRegions.slice()
+                                        }
+
+                                        ActionChipButton {
+                                            text: qsTr("Сбросить")
+                                            destructive: true
+                                            visible: root.selectedCollegeRegions.length > 0
+                                            onClicked: root.selectedCollegeRegions = []
+                                        }
+                                    }
+
+                                    Text {
+                                        text: root.selectedCollegeRegions.length === 0
+                                              ? qsTr("Не выбрано — поиск по всей Беларуси")
+                                              : qsTr("Выбрано регионов: %1").arg(root.selectedCollegeRegions.length)
+                                        color: "dimgray"
+                                        font.family: "Arial"
+                                        font.pointSize: 10
+                                    }
+
+                                    Flow {
+                                        Layout.fillWidth: true
+                                        spacing: 8
+
+                                        Repeater {
+                                            model: AppConstants.collegeRegions
+
+                                            delegate: LocationFlag {
+                                                required property string modelData
+                                                label: modelData
+                                                checked: root.selectedCollegeRegions.indexOf(modelData) !== -1
+                                                onToggled: root.toggleCollegeRegion(modelData)
+                                            }
+                                        }
+                                    }
                                 }
 
-                                // --- БЛОК УНИВЕРСИТЕТА: 2 ЦЭ (язык + профильный) + 1 ЦТ ---
+                                // --- БЛОК УНИВЕРСИТЕТА: 2 ЦЭ + 1 ЦТ + форма обучения + города ---
                                 ColumnLayout {
                                     Layout.fillWidth: true
                                     spacing: 10
@@ -1149,15 +1356,6 @@ ApplicationWindow {
                                         font.family: "Arial"
                                         font.pointSize: 13
                                         Layout.topMargin: 4
-                                        Layout.fillWidth: true
-                                        wrapMode: Text.WordWrap
-                                    }
-
-                                    Text {
-                                        text: qsTr("Приоритет при подборе специальностей ВУЗа отдаётся бюджетной форме обучения.")
-                                        color: "dimgray"
-                                        font.family: "Arial"
-                                        font.pointSize: 11
                                         Layout.fillWidth: true
                                         wrapMode: Text.WordWrap
                                     }
@@ -1242,6 +1440,82 @@ ApplicationWindow {
                                             validator: IntValidator { bottom: 0; top: 100 }
                                         }
                                     }
+
+                                    // Форма обучения для университета (Бюджет / Платно)
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Layout.topMargin: 2
+                                        spacing: 10
+
+                                        Text {
+                                            text: qsTr("Форма обучения:")
+                                            color: "#222222"
+                                            font.family: "Arial"
+                                            font.pointSize: 12
+                                            Layout.preferredWidth: 120
+                                        }
+
+                                        StyledComboBox {
+                                            id: uniStudyFormCombo
+                                            Layout.fillWidth: true
+                                            model: AppConstants.studyForms
+                                            currentIndex: 0
+                                        }
+                                    }
+
+                                    // Флаги выбора городов для университета
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Layout.topMargin: 6
+                                        spacing: 6
+
+                                        Text {
+                                            text: qsTr("Города поступления")
+                                            color: "#222222"
+                                            font.bold: true
+                                            font.family: "Arial"
+                                            font.pointSize: 13
+                                            Layout.fillWidth: true
+                                        }
+
+                                        ActionChipButton {
+                                            text: qsTr("Выбрать все")
+                                            enabled: root.selectedUniversityCities.length < AppConstants.universityCities.length
+                                            onClicked: root.selectedUniversityCities = AppConstants.universityCities.slice()
+                                        }
+
+                                        ActionChipButton {
+                                            text: qsTr("Сбросить")
+                                            destructive: true
+                                            visible: root.selectedUniversityCities.length > 0
+                                            onClicked: root.selectedUniversityCities = []
+                                        }
+                                    }
+
+                                    Text {
+                                        text: root.selectedUniversityCities.length === 0
+                                              ? qsTr("Не выбрано — поиск по всем городам")
+                                              : qsTr("Выбрано городов: %1").arg(root.selectedUniversityCities.length)
+                                        color: "dimgray"
+                                        font.family: "Arial"
+                                        font.pointSize: 10
+                                    }
+
+                                    Flow {
+                                        Layout.fillWidth: true
+                                        spacing: 8
+
+                                        Repeater {
+                                            model: AppConstants.universityCities
+
+                                            delegate: LocationFlag {
+                                                required property string modelData
+                                                label: modelData
+                                                checked: root.selectedUniversityCities.indexOf(modelData) !== -1
+                                                onToggled: root.toggleUniversityCity(modelData)
+                                            }
+                                        }
+                                    }
                                 }
 
                                 // Сообщение об ошибке валидации / сервиса
@@ -1311,7 +1585,7 @@ ApplicationWindow {
                         // --- ОБЛАСТЬ РЕЗУЛЬТАТОВ ПОДБОРА ---
                         Rectangle {
                             Layout.fillWidth: true
-                            Layout.preferredWidth: homeScroll.isWide ? 480 : 400
+                            Layout.preferredWidth: homeScroll.isWide ? 470 : 400
                             Layout.fillHeight: homeScroll.isWide
                             Layout.alignment: Qt.AlignTop
                             implicitHeight: Math.max(resultsAreaCol.implicitHeight + 40,
@@ -1346,7 +1620,9 @@ ApplicationWindow {
                                     visible: recommendationsModel.count === 0 && !recommendationService.busy
 
                                     Text {
-                                        text: qsTr("Добро пожаловать в систему!")
+                                        text: root.hasSearched
+                                              ? qsTr("Подходящих вариантов не найдено")
+                                              : qsTr("Добро пожаловать в систему!")
                                         color: "#222222"
                                         font.bold: true
                                         font.family: "Arial"
@@ -1356,7 +1632,9 @@ ApplicationWindow {
                                     }
 
                                     Text {
-                                        text: qsTr("Здесь будет отображаться список рекомендуемых специальностей")
+                                        text: root.hasSearched
+                                              ? qsTr("Попробуйте расширить список выбранных городов или регионов.")
+                                              : qsTr("Здесь будет отображаться список рекомендуемых специальностей")
                                         font.family: "Arial"
                                         font.pointSize: 12
                                         color: "gray"
@@ -1470,18 +1748,16 @@ ApplicationWindow {
 
                                                 Button {
                                                     id: favBtn
-                                                    property bool saved: root.isFavorite(model.institutionName, model.specialty)
+                                                    readonly property bool saved: favoritesModel.count >= 0
+                                                                                  && root.isFavorite(model.institutionName, model.specialty)
                                                     text: saved ? qsTr("★ В избранном") : qsTr("☆ В избранное")
                                                     flat: true
-                                                    onClicked: {
-                                                        root.toggleFavorite(
-                                                            model.institutionName,
-                                                            model.specialty,
-                                                            model.city,
-                                                            model.passingScore,
-                                                            model.additionalInfo)
-                                                        saved = root.isFavorite(model.institutionName, model.specialty)
-                                                    }
+                                                    onClicked: root.toggleFavorite(
+                                                        model.institutionName,
+                                                        model.specialty,
+                                                        model.city,
+                                                        model.passingScore,
+                                                        model.additionalInfo)
 
                                                     background: Rectangle {
                                                         color: favBtn.saved ? "#34495e" : "#e8ecef"

@@ -19,6 +19,8 @@ class AppConstants : public QObject
     Q_PROPERTY(QStringList examSubjects READ examSubjects CONSTANT)
     Q_PROPERTY(QStringList languageExamSubjects READ languageExamSubjects CONSTANT)
     Q_PROPERTY(QStringList profileExamSubjects READ profileExamSubjects CONSTANT)
+    Q_PROPERTY(QStringList universityCities READ universityCities CONSTANT)
+    Q_PROPERTY(QStringList collegeRegions READ collegeRegions CONSTANT)
 
 public:
     explicit AppConstants(QObject *parent = nullptr)
@@ -127,7 +129,7 @@ public:
             tr("Химия"),
             tr("Биология"),
             tr("История Беларуси"),
-            tr("Обществоведение"),
+            tr("Всемирная история"),
             tr("География"),
             tr("Английский")
         };
@@ -139,6 +141,38 @@ public:
         QStringList all = profileExamSubjects();
         all.append(languageExamSubjects());
         return all;
+    }
+
+    // Города для поиска университетов (ВУЗ)
+    QStringList universityCities() const
+    {
+        return {
+            tr("Минск"),
+            tr("Брест"),
+            tr("Витебск"),
+            tr("Гродно"),
+            tr("Гомель"),
+            tr("Могилёв"),
+            tr("Барановичи"),
+            tr("Пинск"),
+            tr("Новополоцк"),
+            tr("Мозырь"),
+            tr("Горки")
+        };
+    }
+
+    // Минск и области Беларуси для поиска колледжей (ССУЗ)
+    QStringList collegeRegions() const
+    {
+        return {
+            tr("Минск"),
+            tr("Минская область"),
+            tr("Брестская область"),
+            tr("Витебская область"),
+            tr("Гомельская область"),
+            tr("Гродненская область"),
+            tr("Могилёвская область")
+        };
     }
 };
 

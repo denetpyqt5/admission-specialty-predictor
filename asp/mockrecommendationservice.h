@@ -6,8 +6,8 @@
 #include <QJsonArray>
 #include <QJsonObject>
 
-// Временная заглушка без хранения данных об учебных заведениях.
-// Данные поступают извне (от второго разработчика).
+// Заглушка без локального хранения университетов и колледжей.
+// Данные поступают извне (от модуля/сервиса второго разработчика).
 class MockRecommendationService : public IRecommendationService
 {
     Q_OBJECT
@@ -19,7 +19,9 @@ public:
     void submitRequest(const QJsonObject &request) override;
     bool isBusy() const override { return m_busy; }
 
-    // Вспомогательный слот для передачи внешнего JSON-ответа (например, при интеграции)
+    QJsonObject lastRequest() const { return m_lastRequest; }
+
+    // Вспомогательный метод для прямой передачи внешнего JSON-ответа
     Q_INVOKABLE void deliverExternalResults(const QJsonArray &results);
 
 private:
