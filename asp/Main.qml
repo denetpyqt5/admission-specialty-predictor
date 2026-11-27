@@ -25,11 +25,87 @@ ApplicationWindow {
 
     // Состояние UI
     property bool isUniversity: false
+    property string savedFullName: ""
+    property bool profileSavedNotice: false
     property string validationError: ""
+    property int lastCalculatedScore: 0
 
-    // Модель для отображения результатов подбора на вкладке «Главная»
+    // Модель результатов подбора (вкладка «Главная»)
     ListModel {
         id: recommendationsModel
+    }
+
+    // Модель избранных специальностей (вкладка «Профиль»)
+    ListModel {
+        id: favoritesModel
+    }
+
+    // Инициалы для аватара в профиле
+    function getInitials(name) {
+        var parts = name.trim().split(/\s+/).filter(function(p) { return p.length > 0 })
+        if (parts.length === 0)
+            return "?"
+        if (parts.length === 1)
+            return parts[0].charAt(0).toUpperCase()
+        return (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase()
+    }
+
+    // Проверка, есть ли специальность в избранном
+    function isFavorite(institutionName, specialty) {
+        for (var i = 0; i < favoritesModel.count; ++i) {
+            var f = favoritesModel.get(i)
+            if (f.institutionName === institutionName && f.specialty === specialty)
+                return true
+        }
+        return false
+    }
+
+    // Добавление / удаление из избранного
+    function toggleFavorite(institutionName, specialty, city, passingScore, additionalInfo) {
+        for (var i = 0; i < favoritesModel.count; ++i) {
+            var f = favoritesModel.get(i)
+            if (f.institutionName === institutionName && f.specialty === specialty) {
+                favoritesModel.remove(i)
+                return
+            }
+        }
+        favoritesModel.append({
+            institutionName: institutionName,
+            specialty: specialty,
+            city: city,
+            passingScore: passingScore,
+            additionalInfo: additionalInfo
+        })
+    }
+
+    // Сохранение ФИО в профиле
+    function saveProfileName() {
+        var trimmed = fullNameField.text.trim()
+        root.savedFullName = trimmed
+        collegeApplicant.fullName = trimmed
+        universityApplicant.fullName = trimmed
+        root.profileSavedNotice = trimmed.length > 0
+    }
+
+    // Фильтрация списка предметов ЦТ, чтобы исключить предмет, уже выбранный в ЦЭ 2
+    function updateCtSubjectsModel() {
+        if (!ceProfileSubjectCombo || !ctSubjectCombo)
+            return
+
+        var selectedCe = ceProfileSubjectCombo.currentText
+        var prevCt = ctSubjectCombo.currentText
+        var allSubjects = AppConstants.profileExamSubjects
+        var filtered = []
+
+        for (var i = 0; i < allSubjects.length; ++i) {
+            if (allSubjects[i] !== selectedCe) {
+                filtered.push(allSubjects[i])
+            }
+        }
+
+        ctSubjectCombo.model = filtered
+        var restoredIndex = filtered.indexOf(prevCt)
+        ctSubjectCombo.currentIndex = restoredIndex >= 0 ? restoredIndex : 0
     }
 
     // Проверка, относится ли предложение к бюджетной форме обучения
@@ -70,7 +146,6 @@ ApplicationWindow {
                     additionalInfo: item.additionalInfo !== undefined ? item.additionalInfo : ""
                 })
             }
-            stackLayout.currentIndex = 1
         }
 
         function onErrorOccurred(errorMessage) {
@@ -94,13 +169,19 @@ ApplicationWindow {
         return parseInt(trimmed, 10)
     }
 
-    // Валидация и отправка запроса
-    function submitProfile() {
+    // Валидация и отправка запроса с вкладки «Главная»
+    function submitSearch() {
         root.validationError = ""
 
-        var fullName = fullNameField.text.trim()
+        var fullName = root.savedFullName.trim()
         if (fullName.length === 0) {
-            root.validationError = qsTr("Введите ФИО абитуриента.")
+            fullName = fullNameField.text.trim()
+            if (fullName.length > 0) {
+                root.savedFullName = fullName
+            }
+        }
+        if (fullName.length === 0) {
+            root.validationError = qsTr("Сначала укажите ФИО во вкладке «Профиль».")
             return
         }
 
@@ -125,6 +206,7 @@ ApplicationWindow {
             collegeApplicant.studyForm = studyFormCombo.currentText
 
             payload = collegeApplicant.toJson()
+            root.lastCalculatedScore = payload.totalScore !== undefined ? payload.totalScore : 0
         } else {
             var s1 = ceLangSubjectCombo.currentText
             var s2 = ceProfileSubjectCombo.currentText
@@ -160,6 +242,7 @@ ApplicationWindow {
             }
 
             payload = universityApplicant.toJson()
+            root.lastCalculatedScore = payload.totalScore !== undefined ? payload.totalScore : 0
         }
 
         recommendationService.submitRequest(payload)
@@ -251,7 +334,7 @@ ApplicationWindow {
         spacing: 0
 
         // ==========================================
-        // ЛЕВАЯ ЧАСТЬ: Светло-синяя боковая панель
+        // ЛЕВАЯ ЧАСТЬ: Боковая панель навигации
         // ==========================================
         Rectangle {
             id: sidePanel
@@ -273,7 +356,6 @@ ApplicationWindow {
                 spacing: 15
                 width: parent.width - 24
 
-                // Верхний блок: кнопка переключения и заголовок
                 RowLayout {
                     width: parent.width
                     spacing: 10
@@ -411,7 +493,7 @@ ApplicationWindow {
             Layout.fillHeight: true
             currentIndex: 0
 
-            // 1. ВКЛАДКА: ПРОФИЛЬ (адаптивная: 2 колонки на широком экране, 1 — на узком)
+            // 1. ВКЛАДКА: ПРОФИЛЬ (регистрация имени + сводка + избранное)
             ScrollView {
                 id: profileScroll
                 clip: true
@@ -422,7 +504,7 @@ ApplicationWindow {
 
                 Rectangle {
                     width: profileScroll.availableWidth
-                    implicitHeight: Math.max(profileScroll.availableHeight, profileGrid.implicitHeight + 50)
+                    implicitHeight: Math.max(profileScroll.availableHeight, profileGrid.implicitHeight + 48)
                     color: "#fafafa"
 
                     GridLayout {
@@ -435,19 +517,450 @@ ApplicationWindow {
                         columnSpacing: 24
                         rowSpacing: 24
 
-                        // --- КАРТОЧКА 1: МОЙ ПРОФИЛЬ ---
+                        // --- ЛЕВАЯ КАРТОЧКА: Регистрация имени и сводка ---
                         Rectangle {
                             Layout.fillWidth: true
-                            Layout.preferredWidth: profileScroll.isWide ? 560 : 400
+                            Layout.preferredWidth: profileScroll.isWide ? 460 : 400
                             Layout.alignment: Qt.AlignTop
-                            implicitHeight: profileCardColumn.implicitHeight + 40
+                            implicitHeight: nameCardCol.implicitHeight + 40
                             color: "#ffffff"
                             border.color: "#e0e0e0"
                             border.width: 1
                             radius: 8
 
                             ColumnLayout {
-                                id: profileCardColumn
+                                id: nameCardCol
+                                anchors.top: parent.top
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.margins: 20
+                                spacing: 14
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 14
+
+                                    // Аватар с инициалами
+                                    Rectangle {
+                                        width: 54
+                                        height: 54
+                                        radius: 27
+                                        color: "#34495e"
+
+                                        Text {
+                                            anchors.centerIn: parent
+                                            text: root.getInitials(root.savedFullName.length > 0
+                                                                   ? root.savedFullName
+                                                                   : fullNameField.text)
+                                            color: "#ffffff"
+                                            font.bold: true
+                                            font.family: "Arial"
+                                            font.pointSize: 16
+                                        }
+                                    }
+
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 2
+
+                                        Text {
+                                            text: root.savedFullName.length > 0
+                                                  ? root.savedFullName
+                                                  : qsTr("Мой профиль")
+                                            color: "#222222"
+                                            font.bold: true
+                                            font.family: "Arial"
+                                            font.pointSize: 18
+                                            Layout.fillWidth: true
+                                            elide: Text.ElideRight
+                                        }
+
+                                        Text {
+                                            text: root.savedFullName.length > 0
+                                                  ? qsTr("Профиль абитуриента активен")
+                                                  : qsTr("Укажите ФИО для персонализации подбора")
+                                            color: "dimgray"
+                                            font.family: "Arial"
+                                            font.pointSize: 11
+                                            Layout.fillWidth: true
+                                            wrapMode: Text.WordWrap
+                                        }
+                                    }
+                                }
+
+                                // Поле ввода ФИО
+                                StyledTextField {
+                                    id: fullNameField
+                                    Layout.fillWidth: true
+                                    placeholderText: qsTr("ФИО (например, Иванов И.И.)")
+                                    onTextEdited: root.profileSavedNotice = false
+                                    onAccepted: root.saveProfileName()
+                                }
+
+                                // Кнопки сохранения и перехода к подбору
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 10
+
+                                    Button {
+                                        id: saveNameBtn
+                                        text: qsTr("Сохранить профиль")
+                                        highlighted: true
+                                        onClicked: root.saveProfileName()
+
+                                        background: Rectangle {
+                                            color: saveNameBtn.down ? "#2c3e50"
+                                                 : saveNameBtn.hovered ? "#4e6a85"
+                                                 : "#34495e"
+                                            radius: 6
+                                        }
+
+                                        contentItem: Text {
+                                            text: saveNameBtn.text
+                                            color: "#ffffff"
+                                            font.bold: true
+                                            font.family: "Arial"
+                                            font.pointSize: 12
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                            leftPadding: 14
+                                            rightPadding: 14
+                                            topPadding: 8
+                                            bottomPadding: 8
+                                        }
+                                    }
+
+                                    Button {
+                                        id: goToSearchBtn
+                                        text: qsTr("К подбору →")
+                                        flat: true
+                                        onClicked: stackLayout.currentIndex = 1
+
+                                        background: Rectangle {
+                                            color: goToSearchBtn.hovered ? "#dce3e8" : "#e8ecef"
+                                            radius: 6
+                                        }
+
+                                        contentItem: Text {
+                                            text: goToSearchBtn.text
+                                            color: "#34495e"
+                                            font.bold: true
+                                            font.family: "Arial"
+                                            font.pointSize: 12
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                            leftPadding: 12
+                                            rightPadding: 12
+                                            topPadding: 8
+                                            bottomPadding: 8
+                                        }
+                                    }
+                                }
+
+                                Text {
+                                    visible: root.profileSavedNotice
+                                    text: qsTr("Имя сохранено и будет использоваться при подборе специальностей.")
+                                    color: "#2e7d32"
+                                    font.family: "Arial"
+                                    font.pointSize: 11
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                }
+
+                                // Компактная сводка статистики
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    implicitHeight: statsRow.implicitHeight + 20
+                                    color: "#f4f6f8"
+                                    radius: 6
+
+                                    RowLayout {
+                                        id: statsRow
+                                        anchors.fill: parent
+                                        anchors.margins: 10
+                                        spacing: 8
+
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 2
+                                            Text {
+                                                text: root.lastCalculatedScore > 0
+                                                      ? String(root.lastCalculatedScore)
+                                                      : "—"
+                                                color: "#34495e"
+                                                font.bold: true
+                                                font.family: "Arial"
+                                                font.pointSize: 16
+                                                Layout.alignment: Qt.AlignHCenter
+                                            }
+                                            Text {
+                                                text: qsTr("Ваш балл")
+                                                color: "dimgray"
+                                                font.family: "Arial"
+                                                font.pointSize: 10
+                                                Layout.alignment: Qt.AlignHCenter
+                                            }
+                                        }
+
+                                        Rectangle { width: 1; Layout.fillHeight: true; color: "#dce3e8" }
+
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 2
+                                            Text {
+                                                text: String(favoritesModel.count)
+                                                color: "#34495e"
+                                                font.bold: true
+                                                font.family: "Arial"
+                                                font.pointSize: 16
+                                                Layout.alignment: Qt.AlignHCenter
+                                            }
+                                            Text {
+                                                text: qsTr("В избранном")
+                                                color: "dimgray"
+                                                font.family: "Arial"
+                                                font.pointSize: 10
+                                                Layout.alignment: Qt.AlignHCenter
+                                            }
+                                        }
+
+                                        Rectangle { width: 1; Layout.fillHeight: true; color: "#dce3e8" }
+
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 2
+                                            Text {
+                                                text: root.isUniversity ? qsTr("ВУЗ") : qsTr("ССУЗ")
+                                                color: "#34495e"
+                                                font.bold: true
+                                                font.family: "Arial"
+                                                font.pointSize: 16
+                                                Layout.alignment: Qt.AlignHCenter
+                                            }
+                                            Text {
+                                                text: qsTr("Режим")
+                                                color: "dimgray"
+                                                font.family: "Arial"
+                                                font.pointSize: 10
+                                                Layout.alignment: Qt.AlignHCenter
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // --- ПРАВАЯ КАРТОЧКА: Избранные специальности ---
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: profileScroll.isWide ? 440 : 400
+                            Layout.fillHeight: profileScroll.isWide
+                            Layout.alignment: Qt.AlignTop
+                            implicitHeight: Math.max(favoritesCardCol.implicitHeight + 40,
+                                                     profileScroll.isWide ? 280 : 180)
+                            color: "#ffffff"
+                            border.color: "#e0e0e0"
+                            border.width: 1
+                            radius: 8
+
+                            ColumnLayout {
+                                id: favoritesCardCol
+                                anchors.top: parent.top
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.margins: 20
+                                spacing: 12
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+
+                                    Text {
+                                        text: qsTr("Избранное")
+                                        color: "#222222"
+                                        font.bold: true
+                                        font.family: "Arial"
+                                        font.pointSize: 18
+                                        Layout.fillWidth: true
+                                    }
+
+                                    Rectangle {
+                                        visible: favoritesModel.count > 0
+                                        color: "#4e6a85"
+                                        radius: 10
+                                        implicitWidth: favCountTxt.implicitWidth + 14
+                                        implicitHeight: favCountTxt.implicitHeight + 4
+
+                                        Text {
+                                            id: favCountTxt
+                                            anchors.centerIn: parent
+                                            text: String(favoritesModel.count)
+                                            color: "#ffffff"
+                                            font.bold: true
+                                            font.family: "Arial"
+                                            font.pointSize: 10
+                                        }
+                                    }
+                                }
+
+                                // Пустое состояние избранного
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    Layout.topMargin: 16
+                                    spacing: 8
+                                    visible: favoritesModel.count === 0
+
+                                    Text {
+                                        text: qsTr("Здесь будет список предпочтительных Вам специальностей")
+                                        font.family: "Arial"
+                                        font.pointSize: 12
+                                        color: "dimgray"
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.WordWrap
+                                    }
+
+                                    Text {
+                                        text: qsTr("Подберите варианты во вкладке «Главная» и нажмите «В избранное» на понравившихся карточках.")
+                                        font.family: "Arial"
+                                        font.pointSize: 11
+                                        color: "#7f8c8d"
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.WordWrap
+                                    }
+                                }
+
+                                // Список сохранённых специальностей
+                                Repeater {
+                                    model: favoritesModel
+
+                                    delegate: Rectangle {
+                                        Layout.fillWidth: true
+                                        implicitHeight: favItemCol.implicitHeight + 20
+                                        color: "#fafafa"
+                                        border.color: "#dcdcdc"
+                                        border.width: 1
+                                        radius: 6
+
+                                        ColumnLayout {
+                                            id: favItemCol
+                                            anchors.top: parent.top
+                                            anchors.left: parent.left
+                                            anchors.right: parent.right
+                                            anchors.margins: 10
+                                            spacing: 4
+
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 8
+
+                                                Text {
+                                                    text: model.institutionName
+                                                    color: "#34495e"
+                                                    font.bold: true
+                                                    font.family: "Arial"
+                                                    font.pointSize: 13
+                                                    Layout.fillWidth: true
+                                                    elide: Text.ElideRight
+                                                }
+
+                                                Button {
+                                                    text: "✕"
+                                                    flat: true
+                                                    implicitWidth: 26
+                                                    implicitHeight: 26
+                                                    onClicked: favoritesModel.remove(index)
+
+                                                    contentItem: Text {
+                                                        text: "✕"
+                                                        color: "#7f8c8d"
+                                                        font.bold: true
+                                                        horizontalAlignment: Text.AlignHCenter
+                                                        verticalAlignment: Text.AlignVCenter
+                                                    }
+                                                }
+                                            }
+
+                                            Text {
+                                                text: model.specialty
+                                                color: "#222222"
+                                                font.family: "Arial"
+                                                font.pointSize: 11
+                                                Layout.fillWidth: true
+                                                wrapMode: Text.WordWrap
+                                            }
+
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 12
+
+                                                Text {
+                                                    text: qsTr("Балл: %1").arg(model.passingScore)
+                                                    color: "#4e6a85"
+                                                    font.bold: true
+                                                    font.family: "Arial"
+                                                    font.pointSize: 10
+                                                }
+
+                                                Text {
+                                                    text: model.city
+                                                    color: "dimgray"
+                                                    font.family: "Arial"
+                                                    font.pointSize: 10
+                                                }
+
+                                                Text {
+                                                    text: model.additionalInfo
+                                                    color: "dimgray"
+                                                    font.family: "Arial"
+                                                    font.pointSize: 10
+                                                    visible: model.additionalInfo.length > 0
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. ВКЛАДКА: ГЛАВНАЯ (форма подбора + список рекомендаций, адаптивная)
+            ScrollView {
+                id: homeScroll
+                clip: true
+                contentWidth: availableWidth
+                background: Rectangle { color: "#fafafa" }
+
+                readonly property bool isWide: availableWidth >= 880
+
+                Rectangle {
+                    width: homeScroll.availableWidth
+                    implicitHeight: Math.max(homeScroll.availableHeight, homeGrid.implicitHeight + 48)
+                    color: "#fafafa"
+
+                    GridLayout {
+                        id: homeGrid
+                        anchors.top: parent.top
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.margins: 24
+                        columns: homeScroll.isWide ? 2 : 1
+                        columnSpacing: 24
+                        rowSpacing: 24
+
+                        // --- КАРТОЧКА ПОИСКА И ПАРАМЕТРОВ ---
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: homeScroll.isWide ? 440 : 400
+                            Layout.alignment: Qt.AlignTop
+                            implicitHeight: searchCardCol.implicitHeight + 40
+                            color: "#ffffff"
+                            border.color: "#e0e0e0"
+                            border.width: 1
+                            radius: 8
+
+                            ColumnLayout {
+                                id: searchCardCol
                                 anchors.top: parent.top
                                 anchors.left: parent.left
                                 anchors.right: parent.right
@@ -455,22 +968,23 @@ ApplicationWindow {
                                 spacing: 12
 
                                 Text {
-                                    text: qsTr("Мой профиль")
+                                    text: qsTr("Подбор специальности")
                                     color: "#222222"
                                     font.bold: true
                                     font.family: "Arial"
-                                    font.pointSize: 20
+                                    font.pointSize: 18
                                     Layout.fillWidth: true
                                 }
 
                                 Text {
-                                    text: qsTr("Создайте свой профиль и выбирайте понравившиеся специальности!")
-                                    font.family: "Arial"
-                                    font.pointSize: 12
+                                    text: root.savedFullName.length > 0
+                                          ? qsTr("Абитуриент: %1").arg(root.savedFullName)
+                                          : qsTr("Заполните параметры поступления (ФИО указывается в «Профиле»).")
                                     color: "dimgray"
+                                    font.family: "Arial"
+                                    font.pointSize: 11
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
-                                    Layout.bottomMargin: 6
                                 }
 
                                 // Переключатель: Колледж / Университет
@@ -523,13 +1037,6 @@ ApplicationWindow {
                                     }
                                 }
 
-                                // ФИО
-                                StyledTextField {
-                                    id: fullNameField
-                                    Layout.fillWidth: true
-                                    placeholderText: qsTr("ФИО (например, Иванов И.И.)")
-                                }
-
                                 // Средний балл аттестата (0.0–10.0)
                                 RowLayout {
                                     Layout.fillWidth: true
@@ -537,7 +1044,7 @@ ApplicationWindow {
 
                                     StyledTextField {
                                         id: gpaField
-                                        Layout.preferredWidth: 190
+                                        Layout.preferredWidth: 185
                                         placeholderText: qsTr("Средний балл (0–10)")
                                         inputMethodHints: Qt.ImhFormattedNumbersOnly
                                         validator: DoubleValidator {
@@ -549,7 +1056,7 @@ ApplicationWindow {
                                     }
 
                                     Text {
-                                        text: qsTr("Шкала: от 0.0 до 10.0")
+                                        text: qsTr("Шкала: 0.0–10.0")
                                         font.family: "Arial"
                                         font.pointSize: 11
                                         color: "dimgray"
@@ -570,7 +1077,7 @@ ApplicationWindow {
                                         font.bold: true
                                         font.family: "Arial"
                                         font.pointSize: 13
-                                        Layout.topMargin: 6
+                                        Layout.topMargin: 4
                                     }
 
                                     RowLayout {
@@ -581,7 +1088,7 @@ ApplicationWindow {
                                             color: "#222222"
                                             font.family: "Arial"
                                             font.pointSize: 12
-                                            Layout.preferredWidth: 125
+                                            Layout.preferredWidth: 120
                                         }
                                         StyledComboBox {
                                             id: directionCombo
@@ -602,7 +1109,7 @@ ApplicationWindow {
                                             color: "#222222"
                                             font.family: "Arial"
                                             font.pointSize: 12
-                                            Layout.preferredWidth: 125
+                                            Layout.preferredWidth: 120
                                         }
                                         StyledComboBox {
                                             id: profileCombo
@@ -619,7 +1126,7 @@ ApplicationWindow {
                                             color: "#222222"
                                             font.family: "Arial"
                                             font.pointSize: 12
-                                            Layout.preferredWidth: 125
+                                            Layout.preferredWidth: 120
                                         }
                                         StyledComboBox {
                                             id: studyFormCombo
@@ -641,7 +1148,7 @@ ApplicationWindow {
                                         font.bold: true
                                         font.family: "Arial"
                                         font.pointSize: 13
-                                        Layout.topMargin: 6
+                                        Layout.topMargin: 4
                                         Layout.fillWidth: true
                                         wrapMode: Text.WordWrap
                                     }
@@ -665,7 +1172,7 @@ ApplicationWindow {
                                             font.bold: true
                                             font.family: "Arial"
                                             font.pointSize: 12
-                                            Layout.preferredWidth: 96
+                                            Layout.preferredWidth: 94
                                         }
                                         StyledComboBox {
                                             id: ceLangSubjectCombo
@@ -675,14 +1182,14 @@ ApplicationWindow {
                                         }
                                         StyledTextField {
                                             id: ceLangScoreField
-                                            Layout.preferredWidth: 96
+                                            Layout.preferredWidth: 88
                                             placeholderText: qsTr("0–100")
                                             inputMethodHints: Qt.ImhDigitsOnly
                                             validator: IntValidator { bottom: 0; top: 100 }
                                         }
                                     }
 
-                                    // ЦЭ 2: профильные предметы (без Русского и Белорусского)
+                                    // ЦЭ 2: профильные предметы
                                     RowLayout {
                                         Layout.fillWidth: true
                                         spacing: 10
@@ -692,24 +1199,25 @@ ApplicationWindow {
                                             font.bold: true
                                             font.family: "Arial"
                                             font.pointSize: 12
-                                            Layout.preferredWidth: 96
+                                            Layout.preferredWidth: 94
                                         }
                                         StyledComboBox {
                                             id: ceProfileSubjectCombo
                                             Layout.fillWidth: true
                                             model: AppConstants.profileExamSubjects
                                             currentIndex: 0
+                                            onCurrentTextChanged: root.updateCtSubjectsModel()
                                         }
                                         StyledTextField {
                                             id: ceProfileScoreField
-                                            Layout.preferredWidth: 96
+                                            Layout.preferredWidth: 88
                                             placeholderText: qsTr("0–100")
                                             inputMethodHints: Qt.ImhDigitsOnly
                                             validator: IntValidator { bottom: 0; top: 100 }
                                         }
                                     }
 
-                                    // ЦТ: профильные предметы (без Русского и Белорусского)
+                                    // ЦТ: профильные предметы (без предмета, выбранного в ЦЭ 2)
                                     RowLayout {
                                         Layout.fillWidth: true
                                         spacing: 10
@@ -719,17 +1227,16 @@ ApplicationWindow {
                                             font.bold: true
                                             font.family: "Arial"
                                             font.pointSize: 12
-                                            Layout.preferredWidth: 96
+                                            Layout.preferredWidth: 94
                                         }
                                         StyledComboBox {
                                             id: ctSubjectCombo
                                             Layout.fillWidth: true
-                                            model: AppConstants.profileExamSubjects
-                                            currentIndex: 1
+                                            Component.onCompleted: root.updateCtSubjectsModel()
                                         }
                                         StyledTextField {
                                             id: ctScoreField
-                                            Layout.preferredWidth: 96
+                                            Layout.preferredWidth: 88
                                             placeholderText: qsTr("0–100")
                                             inputMethodHints: Qt.ImhDigitsOnly
                                             validator: IntValidator { bottom: 0; top: 100 }
@@ -758,7 +1265,7 @@ ApplicationWindow {
                                         text: qsTr("Подобрать")
                                         highlighted: true
                                         enabled: !recommendationService.busy
-                                        onClicked: root.submitProfile()
+                                        onClicked: root.submitSearch()
 
                                         background: Rectangle {
                                             color: !submitBtn.enabled ? "#95a5a6"
@@ -801,213 +1308,198 @@ ApplicationWindow {
                             }
                         }
 
-                        // --- КАРТОЧКА 2: ИЗБРАННОЕ ---
+                        // --- ОБЛАСТЬ РЕЗУЛЬТАТОВ ПОДБОРА ---
                         Rectangle {
                             Layout.fillWidth: true
-                            Layout.preferredWidth: profileScroll.isWide ? 360 : 400
-                            Layout.fillHeight: profileScroll.isWide
+                            Layout.preferredWidth: homeScroll.isWide ? 480 : 400
+                            Layout.fillHeight: homeScroll.isWide
                             Layout.alignment: Qt.AlignTop
-                            implicitHeight: Math.max(favoritesCardColumn.implicitHeight + 40,
-                                                     profileScroll.isWide ? 240 : 120)
+                            implicitHeight: Math.max(resultsAreaCol.implicitHeight + 40,
+                                                     homeScroll.isWide ? 420 : 200)
                             color: "#ffffff"
                             border.color: "#e0e0e0"
                             border.width: 1
                             radius: 8
 
                             ColumnLayout {
-                                id: favoritesCardColumn
+                                id: resultsAreaCol
                                 anchors.top: parent.top
                                 anchors.left: parent.left
                                 anchors.right: parent.right
                                 anchors.margins: 20
-                                spacing: 10
+                                spacing: 12
 
                                 Text {
-                                    text: qsTr("Избранное")
+                                    text: qsTr("Рекомендуемые специальности")
                                     color: "#222222"
                                     font.bold: true
                                     font.family: "Arial"
-                                    font.pointSize: 20
+                                    font.pointSize: 18
                                     Layout.fillWidth: true
                                 }
 
-                                Text {
-                                    text: qsTr("Здесь будет список предпочтительных Вам специальностей")
-                                    font.family: "Arial"
-                                    font.pointSize: 12
-                                    color: "dimgray"
+                                // Пустое состояние
+                                ColumnLayout {
                                     Layout.fillWidth: true
-                                    wrapMode: Text.WordWrap
+                                    Layout.topMargin: 20
+                                    spacing: 8
+                                    visible: recommendationsModel.count === 0 && !recommendationService.busy
+
+                                    Text {
+                                        text: qsTr("Добро пожаловать в систему!")
+                                        color: "#222222"
+                                        font.bold: true
+                                        font.family: "Arial"
+                                        font.pointSize: 14
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.WordWrap
+                                    }
+
+                                    Text {
+                                        text: qsTr("Здесь будет отображаться список рекомендуемых специальностей")
+                                        font.family: "Arial"
+                                        font.pointSize: 12
+                                        color: "gray"
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.WordWrap
+                                    }
                                 }
-                            }
-                        }
-                    }
-                }
-            }
 
-            // 2. ВКЛАДКА: ГЛАВНАЯ (адаптивная сетка карточек)
-            Rectangle {
-                id: homeTab
-                color: "#fafafa"
-
-                // Пустое состояние
-                Column {
-                    anchors.centerIn: parent
-                    width: Math.min(parent.width - 48, 520)
-                    spacing: 15
-                    visible: recommendationsModel.count === 0 && !recommendationService.busy
-
-                    Text {
-                        text: qsTr("Добро пожаловать в систему!")
-                        color: "#222222"
-                        font.bold: true
-                        font.family: "Arial"
-                        font.pointSize: 16
-                        width: parent.width
-                        horizontalAlignment: Text.AlignHCenter
-                        wrapMode: Text.WordWrap
-                    }
-                    Text {
-                        text: qsTr("Здесь будет отображаться список рекомендуемых специальностей")
-                        font.family: "Arial"
-                        font.pointSize: 12
-                        color: "gray"
-                        width: parent.width
-                        horizontalAlignment: Text.AlignHCenter
-                        wrapMode: Text.WordWrap
-                    }
-                }
-
-                // Индикатор загрузки
-                Column {
-                    anchors.centerIn: parent
-                    spacing: 12
-                    visible: recommendationService.busy
-
-                    BusyIndicator {
-                        running: recommendationService.busy
-                        anchors.horizontalCenter: parent.horizontalCenter
-                    }
-                    Text {
-                        text: qsTr("Загрузка рекомендаций...")
-                        font.family: "Arial"
-                        font.pointSize: 12
-                        color: "dimgray"
-                        anchors.horizontalCenter: parent.horizontalCenter
-                    }
-                }
-
-                // Список подобранных специальностей (EducationOffer)
-                ScrollView {
-                    id: offersScroll
-                    anchors.fill: parent
-                    clip: true
-                    contentWidth: availableWidth
-                    visible: recommendationsModel.count > 0 && !recommendationService.busy
-                    background: Rectangle { color: "#fafafa" }
-
-                    ColumnLayout {
-                        width: offersScroll.availableWidth
-                        spacing: 14
-
-                        Text {
-                            text: qsTr("Рекомендуемые специальности")
-                            color: "#222222"
-                            font.bold: true
-                            font.family: "Arial"
-                            font.pointSize: 18
-                            Layout.topMargin: 24
-                            Layout.leftMargin: 24
-                            Layout.rightMargin: 24
-                        }
-
-                        GridLayout {
-                            Layout.fillWidth: true
-                            Layout.leftMargin: 24
-                            Layout.rightMargin: 24
-                            Layout.bottomMargin: 24
-                            columns: offersScroll.availableWidth >= 820 ? 2 : 1
-                            columnSpacing: 14
-                            rowSpacing: 14
-
-                            Repeater {
-                                model: recommendationsModel
-
-                                delegate: Rectangle {
+                                // Индикатор загрузки
+                                ColumnLayout {
                                     Layout.fillWidth: true
-                                    Layout.alignment: Qt.AlignTop
-                                    implicitHeight: offerCardColumn.implicitHeight + 24
-                                    color: "#ffffff"
-                                    border.color: "#dcdcdc"
-                                    border.width: 1
-                                    radius: 6
+                                    Layout.topMargin: 24
+                                    spacing: 10
+                                    visible: recommendationService.busy
 
-                                    ColumnLayout {
-                                        id: offerCardColumn
-                                        anchors.left: parent.left
-                                        anchors.right: parent.right
-                                        anchors.top: parent.top
-                                        anchors.margins: 12
-                                        spacing: 6
+                                    BusyIndicator {
+                                        running: recommendationService.busy
+                                        Layout.alignment: Qt.AlignHCenter
+                                    }
+                                    Text {
+                                        text: qsTr("Загрузка рекомендаций...")
+                                        font.family: "Arial"
+                                        font.pointSize: 12
+                                        color: "dimgray"
+                                        Layout.alignment: Qt.AlignHCenter
+                                    }
+                                }
 
-                                        RowLayout {
-                                            Layout.fillWidth: true
-                                            spacing: 8
+                                // Карточки подобранных специальностей (EducationOffer)
+                                Repeater {
+                                    model: recommendationsModel
 
-                                            Text {
-                                                text: model.institutionName
-                                                font.bold: true
-                                                font.family: "Arial"
-                                                font.pointSize: 14
-                                                color: "#34495e"
+                                    delegate: Rectangle {
+                                        Layout.fillWidth: true
+                                        implicitHeight: offerCardColumn.implicitHeight + 24
+                                        color: "#fafafa"
+                                        border.color: "#dcdcdc"
+                                        border.width: 1
+                                        radius: 6
+                                        visible: !recommendationService.busy
+
+                                        ColumnLayout {
+                                            id: offerCardColumn
+                                            anchors.left: parent.left
+                                            anchors.right: parent.right
+                                            anchors.top: parent.top
+                                            anchors.margins: 12
+                                            spacing: 6
+
+                                            RowLayout {
                                                 Layout.fillWidth: true
-                                                elide: Text.ElideRight
-                                            }
-
-                                            Rectangle {
-                                                color: "#4e6a85"
-                                                radius: 4
-                                                implicitWidth: scoreBadgeText.implicitWidth + 16
-                                                implicitHeight: scoreBadgeText.implicitHeight + 8
+                                                spacing: 8
 
                                                 Text {
-                                                    id: scoreBadgeText
-                                                    anchors.centerIn: parent
-                                                    text: qsTr("Проходной: %1").arg(model.passingScore)
-                                                    color: "#ffffff"
+                                                    text: model.institutionName
                                                     font.bold: true
                                                     font.family: "Arial"
-                                                    font.pointSize: 11
+                                                    font.pointSize: 14
+                                                    color: "#34495e"
+                                                    Layout.fillWidth: true
+                                                    elide: Text.ElideRight
+                                                }
+
+                                                Rectangle {
+                                                    color: "#4e6a85"
+                                                    radius: 4
+                                                    implicitWidth: scoreBadgeText.implicitWidth + 14
+                                                    implicitHeight: scoreBadgeText.implicitHeight + 6
+
+                                                    Text {
+                                                        id: scoreBadgeText
+                                                        anchors.centerIn: parent
+                                                        text: qsTr("Проходной: %1").arg(model.passingScore)
+                                                        color: "#ffffff"
+                                                        font.bold: true
+                                                        font.family: "Arial"
+                                                        font.pointSize: 10
+                                                    }
                                                 }
                                             }
-                                        }
-
-                                        Text {
-                                            text: model.specialty
-                                            font.family: "Arial"
-                                            font.pointSize: 12
-                                            color: "#222222"
-                                            Layout.fillWidth: true
-                                            wrapMode: Text.WordWrap
-                                        }
-
-                                        RowLayout {
-                                            Layout.fillWidth: true
-                                            spacing: 16
 
                                             Text {
-                                                text: qsTr("Город: %1").arg(model.city)
+                                                text: model.specialty
                                                 font.family: "Arial"
-                                                font.pointSize: 11
-                                                color: "dimgray"
+                                                font.pointSize: 12
+                                                color: "#222222"
+                                                Layout.fillWidth: true
+                                                wrapMode: Text.WordWrap
                                             }
 
-                                            Text {
-                                                text: qsTr("Условия: %1").arg(model.additionalInfo)
-                                                font.family: "Arial"
-                                                font.pointSize: 11
-                                                color: "dimgray"
-                                                visible: model.additionalInfo.length > 0
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 12
+
+                                                Text {
+                                                    text: qsTr("Город: %1").arg(model.city)
+                                                    font.family: "Arial"
+                                                    font.pointSize: 11
+                                                    color: "dimgray"
+                                                }
+
+                                                Text {
+                                                    text: qsTr("Условия: %1").arg(model.additionalInfo)
+                                                    font.family: "Arial"
+                                                    font.pointSize: 11
+                                                    color: "dimgray"
+                                                    visible: model.additionalInfo.length > 0
+                                                    Layout.fillWidth: true
+                                                    elide: Text.ElideRight
+                                                }
+
+                                                Button {
+                                                    id: favBtn
+                                                    property bool saved: root.isFavorite(model.institutionName, model.specialty)
+                                                    text: saved ? qsTr("★ В избранном") : qsTr("☆ В избранное")
+                                                    flat: true
+                                                    onClicked: {
+                                                        root.toggleFavorite(
+                                                            model.institutionName,
+                                                            model.specialty,
+                                                            model.city,
+                                                            model.passingScore,
+                                                            model.additionalInfo)
+                                                        saved = root.isFavorite(model.institutionName, model.specialty)
+                                                    }
+
+                                                    background: Rectangle {
+                                                        color: favBtn.saved ? "#34495e" : "#e8ecef"
+                                                        radius: 4
+                                                    }
+
+                                                    contentItem: Text {
+                                                        text: favBtn.text
+                                                        color: favBtn.saved ? "#ffffff" : "#34495e"
+                                                        font.bold: favBtn.saved
+                                                        font.family: "Arial"
+                                                        font.pointSize: 10
+                                                        leftPadding: 8
+                                                        rightPadding: 8
+                                                        topPadding: 4
+                                                        bottomPadding: 4
+                                                    }
+                                                }
                                             }
                                         }
                                     }
