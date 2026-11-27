@@ -4,6 +4,10 @@ project(asp VERSION 0.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+if (NOT DEFINED CMAKE_PREFIX_PATH)
+    set(CMAKE_PREFIX_PATH "D:/QtCreator/6.12.1/mingw_64")
+endif()
+
 find_package(Qt6 REQUIRED COMPONENTS Quick)
 
 qt_standard_project_setup(REQUIRES 6.10)
@@ -21,14 +25,20 @@ qt_add_qml_module(appasp
     URI asp
     QML_FILES
         Main.qml
-        SOURCES applicant.h applicant.cpp
+    SOURCES
+        applicant.h
+        applicant.cpp
+        constants.h
+        irecommendationservice.h
+        mockrecommendationservice.h
+        mockrecommendationservice.cpp
 )
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
 # If you are developing for iOS or macOS you should consider setting an
 # explicit, fixed bundle identifier manually though.
 set_target_properties(appasp PROPERTIES
-#    MACOSX_BUNDLE_GUI_IDENTIFIER com.example.appasp
+    #    MACOSX_BUNDLE_GUI_IDENTIFIER com.example.appasp
     MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
     MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}
     MACOSX_BUNDLE TRUE
